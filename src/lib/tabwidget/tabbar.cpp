@@ -1,6 +1,6 @@
 /* ============================================================
-* QupZilla - WebKit based browser
-* Copyright (C) 2010-2016 David Rosca <nowrep@gmail.com>
+* QupZilla - Qt web browser
+* Copyright (C) 2010-2017 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -25,11 +25,11 @@
 #include "mainapplication.h"
 #include "pluginproxy.h"
 #include "iconprovider.h"
+#include "checkboxdialog.h"
 
 #include <QMenu>
 #include <QMimeData>
 #include <QMouseEvent>
-#include <QMessageBox>
 #include <QStyleOption>
 #include <QApplication>
 #include <QTimer>
@@ -127,13 +127,49 @@ void TabBar::overflowChanged(bool overflowed)
     }
 }
 
+static bool canCloseTabs(const QString &settingsKey, const QString &title, const QString &description)
+{
+    Settings settings;
+    bool ask = settings.value("Browser-Tabs-Settings/" + settingsKey, true).toBool();
+
+    if (ask) {
+        CheckBoxDialog dialog(QMessageBox::Yes | QMessageBox::No, mApp->activeWindow());
+        dialog.setDefaultButton(QMessageBox::No);
+        dialog.setWindowTitle(title);
+        dialog.setText(description);
+        dialog.setCheckBoxText(TabBar::tr("Don't ask again"));
+        dialog.setIcon(QMessageBox::Question);
+
+        if (dialog.exec() != QMessageBox::Yes) {
+            return false;
+        }
+
+        if (dialog.isChecked()) {
+            settings.setValue("Browser-Tabs-Settings/" + settingsKey, false);
+        }
+    }
+
+    return true;
+}
+
 void TabBar::closeAllButCurrent()
 {
-    QMessageBox::StandardButton button = QMessageBox::question(this, tr("Close Tabs"), tr("Do you really want to close other tabs?"),
-                                         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-
-    if (button == QMessageBox::Yes) {
+    if (canCloseTabs(QLatin1String("AskOnClosingAllButCurrent"), tr("Close Tabs"), tr("Do you really want to close other tabs?"))) {
         emit closeAllButCurrent(m_clickedTab);
+    }
+}
+
+void TabBar::closeToRight()
+{
+    if (canCloseTabs(QLatin1String("AskOnClosingToRight"), tr("Close Tabs"), tr("Do you really want to close all tabs to the right?"))) {
+        emit closeToRight(m_clickedTab);
+    }
+}
+
+void TabBar::closeToLeft()
+{
+    if (canCloseTabs(QLatin1String("AskOnClosingToLeft"), tr("Close Tabs"), tr("Do you really want to close all tabs to the left?"))) {
+        emit closeToLeft(m_clickedTab);
     }
 }
 
@@ -253,9 +289,6 @@ QSize TabBar::tabSizeHint(int index, bool fast) const
 
 int TabBar::comboTabBarPixelMetric(ComboTabBar::SizeType sizeType) const
 {
-    if (!isVisible())
-        return -1;
-
     switch (sizeType) {
     case ComboTabBar::PinnedTabWidth:
         return iconButtonSize().width() + style()->pixelMetric(QStyle::PM_TabBarTabHSpace, 0, this);
@@ -308,8 +341,6 @@ void TabBar::contextMenuEvent(QContextMenuEvent* event)
     m_clickedTab = index;
 
     QMenu menu;
-    menu.addAction(IconProvider::newTabIcon(), tr("&New tab"), m_window, SLOT(addTab()));
-    menu.addSeparator();
     if (index != -1) {
         WebTab* webTab = qobject_cast<WebTab*>(m_tabWidget->widget(m_clickedTab));
         if (!webTab) {
@@ -330,18 +361,20 @@ void TabBar::contextMenuEvent(QContextMenuEvent* event)
         }
 
         menu.addAction(webTab->isPinned() ? tr("Un&pin Tab") : tr("&Pin Tab"), this, SLOT(pinTab()));
+        menu.addAction(webTab->isMuted() ? tr("Un&mute Tab") : tr("&Mute Tab"), this, SLOT(muteTab()));
         menu.addSeparator();
         menu.addAction(tr("Re&load All Tabs"), m_tabWidget, SLOT(reloadAllTabs()));
-        menu.addAction(tr("&Bookmark This Tab"), this, SLOT(bookmarkTab()));
         menu.addAction(tr("Bookmark &All Tabs"), m_window, SLOT(bookmarkAllTabs()));
         menu.addSeparator();
-        menu.addAction(m_window->action(QSL("Other/RestoreClosedTab")));
-        menu.addSeparator();
         menu.addAction(tr("Close Ot&her Tabs"), this, SLOT(closeAllButCurrent()));
-        menu.addAction(QIcon::fromTheme("window-close"), tr("Cl&ose"), this, SLOT(closeTab()));
+        menu.addAction(tr("Close Tabs To The Right"), this, SLOT(closeToRight()));
+        menu.addAction(tr("Close Tabs To The Left"), this, SLOT(closeToLeft()));
         menu.addSeparator();
-    }
-    else {
+        menu.addAction(m_window->action(QSL("Other/RestoreClosedTab")));
+        menu.addAction(QIcon::fromTheme("window-close"), tr("Cl&ose Tab"), this, SLOT(closeTab()));
+    } else {
+        menu.addAction(IconProvider::newTabIcon(), tr("&New tab"), m_window, SLOT(addTab()));
+        menu.addSeparator();
         menu.addAction(tr("Reloa&d All Tabs"), m_tabWidget, SLOT(reloadAllTabs()));
         menu.addAction(tr("Bookmark &All Tabs"), m_window, SLOT(bookmarkAllTabs()));
         menu.addSeparator();
@@ -433,22 +466,10 @@ void TabBar::currentTabChanged(int index)
         showCloseButton(index);
         hideCloseButton(m_tabWidget->lastTabIndex());
 
-        ensureVisible(index);
+        QTimer::singleShot(100, this, [this]() { ensureVisible(); });
     }
 
     m_tabWidget->currentTabChanged(index);
-}
-
-void TabBar::bookmarkTab()
-{
-    TabbedWebView* view = m_window->weView(m_clickedTab);
-    if (!view) {
-        return;
-    }
-
-    WebTab* tab = view->webTab();
-
-    m_window->addBookmark(tab->url(), tab->title());
 }
 
 void TabBar::pinTab()
@@ -457,6 +478,15 @@ void TabBar::pinTab()
 
     if (webTab) {
         webTab->togglePinned();
+    }
+}
+
+void TabBar::muteTab()
+{
+    WebTab* webTab = qobject_cast<WebTab*>(m_tabWidget->widget(m_clickedTab));
+
+    if (webTab) {
+        webTab->toggleMuted();
     }
 }
 
@@ -569,7 +599,7 @@ void TabBar::mouseReleaseEvent(QMouseEvent* event)
     }
 
     if (m_tabWidget->buttonAddTab()->isHidden() && !isMainBarOverflowed()) {
-        QTimer::singleShot(500, m_tabWidget->buttonAddTab(), SLOT(show()));
+        QTimer::singleShot(ComboTabBar::slideAnimationDuration(), m_tabWidget->buttonAddTab(), &AddTabButton::show);
     }
 
     if (!rect().contains(event->pos())) {

@@ -1,6 +1,6 @@
 /* ============================================================
-* QupZilla - WebKit based browser
-* Copyright (C) 2010-2016  David Rosca <nowrep@gmail.com>
+* QupZilla - Qt web browser
+* Copyright (C) 2010-2017 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -188,21 +188,6 @@ bool AdBlockSubscription::saveDownloadedData(const QByteArray &data)
 
     // Write subscription header
     file.write(QString("Title: %1\nUrl: %2\n").arg(title(), url().toString()).toUtf8());
-
-    if (AdBlockManager::instance()->useLimitedEasyList() && m_url == QUrl(ADBLOCK_EASYLIST_URL)) {
-        // Third-party advertisers rules are with start domain (||) placeholder which needs regexps
-        // So we are ignoring it for keeping good performance
-        // But we will use whitelist rules at the end of list
-
-        QByteArray part1 = data.left(data.indexOf(QLatin1String("!-----------------------------Third-party adverts-----------------------------!")));
-        QByteArray part2 = data.mid(data.indexOf(QLatin1String("!---------------------------------Whitelists----------------------------------!")));
-
-        file.write(part1);
-        file.write(part2);
-        file.close();
-        return true;
-    }
-
     file.write(data);
     file.close();
     return true;
@@ -312,6 +297,10 @@ void AdBlockCustomList::loadSubscription(const QStringList &disabledRules)
     const QString rules = QzTools::readAllFileContents(filePath());
 
     QFile file(filePath());
+    if (!file.exists()) {
+        saveSubscription();
+    }
+
     if (file.open(QFile::WriteOnly | QFile::Append)) {
         QTextStream stream(&file);
         stream.setCodec("UTF-8");

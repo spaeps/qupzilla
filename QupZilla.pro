@@ -6,12 +6,12 @@
 #
 #-------------------------------------------------
 
-lessThan(QT_VERSION, 5.6) {
-    error("QupZilla requires at least Qt 5.6!")
+lessThan(QT_VERSION, 5.8) {
+    error("QupZilla requires at least Qt 5.8!")
 }
 
-lessThan(QT.webengine.VERSION, 5.6) {
-    error("QupZilla requires at least QtWebEngine 5.6!")
+lessThan(QT.webengine.VERSION, 5.8) {
+    error("QupZilla requires at least QtWebEngine 5.8!")
 }
 
 # Create plugins directory first on Mac / Linux
@@ -29,3 +29,9 @@ src_plugins.subdir = src/plugins
 src_plugins.depends = sub-src-lib
 
 SUBDIRS += src_lib src_main src_plugins
+
+mac: {
+    macdeploysh.target = bundle
+    macdeploysh.commands = mac/macdeploy.sh $$[QT_INSTALL_BINS]/macdeployqt
+    QMAKE_EXTRA_TARGETS += macdeploysh
+}

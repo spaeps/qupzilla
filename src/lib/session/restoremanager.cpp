@@ -22,10 +22,10 @@
 
 #include <QFile>
 
-RestoreManager::RestoreManager()
+RestoreManager::RestoreManager(const QString &file)
     : m_recoveryObject(new RecoveryJsObject(this))
 {
-    createFromFile(DataPaths::currentProfilePath() + QLatin1String("/session.dat"));
+    createFromFile(file);
 }
 
 RestoreManager::~RestoreManager()
@@ -49,7 +49,7 @@ QObject *RestoreManager::recoveryObject(WebPage *page)
     return m_recoveryObject;
 }
 
-void RestoreManager::createFromFile(const QString &file)
+void RestoreManager::createFromFile(const QString &file, QVector<WindowData> &data)
 {
     if (!QFile::exists(file)) {
         return;
@@ -91,12 +91,21 @@ void RestoreManager::createFromFile(const QString &file)
             tabStream >> tab;
             tabs.append(tab);
         }
+
+        if (tabs.count() == 0)
+            continue;
+
         wd.tabsState = tabs;
 
         int currentTab;
         tabStream >> currentTab;
         wd.currentTab = currentTab;
 
-        m_data.append(wd);
+        data.append(wd);
     }
+}
+
+void RestoreManager::createFromFile(const QString &file)
+{
+    createFromFile(file, m_data);
 }

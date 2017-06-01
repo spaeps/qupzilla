@@ -1,6 +1,6 @@
 /* ============================================================
 * QupZilla - WebKit based browser
-* Copyright (C) 2010-2014  David Rosca <nowrep@gmail.com>
+* Copyright (C) 2010-2016 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -52,6 +52,8 @@ signals:
     void reloadTab(int index);
     void stopTab(int index);
     void closeAllButCurrent(int index);
+    void closeToRight(int index);
+    void closeToLeft(int index);
     void duplicateTab(int index);
     void detachTab(int index);
 
@@ -67,11 +69,13 @@ private slots:
     void duplicateTab() { emit duplicateTab(m_clickedTab); }
     void detachTab() { emit detachTab(m_clickedTab); }
 
-    void bookmarkTab();
     void pinTab();
+    void muteTab();
 
     void closeCurrentTab();
     void closeAllButCurrent();
+    void closeToRight();
+    void closeToLeft();
     void closeTabFromButton();
 
 private:

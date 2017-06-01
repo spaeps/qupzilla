@@ -1,6 +1,6 @@
 /* ============================================================
-* QupZilla - WebKit based browser
-* Copyright (C) 2010-2014  David Rosca <nowrep@gmail.com>
+* QupZilla - Qt web browser
+* Copyright (C) 2010-2017 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -65,7 +65,7 @@ public:
 
     QUrl url() const;
     QString title() const;
-    QIcon icon() const;
+    QIcon icon(bool allowNull = false) const;
     QWebEngineHistory* history() const;
     int zoomLevel() const;
     void setZoomLevel(int level);
@@ -73,7 +73,6 @@ public:
     void detach();
     void attach(BrowserWindow* window);
 
-    void setHistoryData(const QByteArray &data);
     QByteArray historyData() const;
 
     void stop();
@@ -84,6 +83,10 @@ public:
     void setPinned(bool state);
     void togglePinned();
 
+    bool isMuted() const;
+    void setMuted(bool muted);
+    void toggleMuted();
+
     int tabIndex() const;
 
     bool isCurrentTab() const;
@@ -92,10 +95,12 @@ public:
     void showWebInspector(bool inspectElement = false);
     void toggleWebInspector();
 
+    void showSearchToolBar();
+
     bool isRestored() const;
     void restoreTab(const SavedTab &tab);
     void p_restoreTab(const SavedTab &tab);
-    void p_restoreTab(const QUrl &url, const QByteArray &history);
+    void p_restoreTab(const QUrl &url, const QByteArray &history, int zoomLevel);
 
 private slots:
     void showNotification(QWidget* notif);
@@ -107,6 +112,7 @@ private slots:
 
 private:
     void showEvent(QShowEvent* event);
+    void resizeEvent(QResizeEvent *event) override;
 
     BrowserWindow* m_window;
     QVBoxLayout* m_layout;
@@ -117,6 +123,7 @@ private:
     LocationBar* m_locationBar;
     TabIcon* m_tabIcon;
     TabBar* m_tabBar;
+    QWidget *m_notificationWidget;
 
     SavedTab m_savedTab;
     bool m_isPinned;

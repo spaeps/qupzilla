@@ -1,6 +1,6 @@
 /* ============================================================
 * QupZilla - WebKit based browser
-* Copyright (C) 2014  David Rosca <nowrep@gmail.com>
+* Copyright (C) 2014-2016 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -38,12 +38,14 @@ class QUPZILLA_EXPORT MainMenu : public QMenu
 public:
     explicit MainMenu(BrowserWindow* window, QWidget* parent = 0);
 
-    void setWindow(BrowserWindow* window);
 
     void initMenuBar(QMenuBar* menuBar) const;
     void initSuperMenu(QMenu* superMenu) const;
 
     QAction* action(const QString &name) const;
+
+public slots:
+    void setWindow(BrowserWindow* window);
 
 private slots:
     // Standard actions
@@ -58,6 +60,7 @@ private slots:
     void openLocation();
     void openFile();
     void closeWindow();
+    void savePageAs();
     void sendLink();
     void printPage();
 

@@ -1,6 +1,6 @@
 /* ============================================================
-* QupZilla - WebKit based browser
-* Copyright (C) 2010-2016  David Rosca <nowrep@gmail.com>
+* QupZilla - Qt web browser
+* Copyright (C) 2010-2017 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -48,6 +48,8 @@ class SearchEnginesManager;
 class HTML5PermissionsManager;
 class RegisterQAppAssociation;
 class DesktopNotificationsFactory;
+class ProxyStyle;
+class SessionManager;
 
 class QUPZILLA_EXPORT MainApplication : public QtSingleApplication
 {
@@ -58,7 +60,8 @@ public:
         OpenBlankPage = 0,
         OpenHomePage = 1,
         OpenSpeedDial = 2,
-        RestoreSession = 3
+        RestoreSession = 3,
+        SelectSession = 4
     };
 
     explicit MainApplication(int &argc, char** argv);
@@ -78,12 +81,14 @@ public:
 
     AfterLaunch afterLaunch() const;
 
+    void openSession(BrowserWindow* window, RestoreData &restoreData);
     bool restoreSession(BrowserWindow* window, RestoreData restoreData);
     void destroyRestoreManager();
     void reloadSettings();
 
     // Name of current Qt style
     QString styleName() const;
+    void setProxyStyle(ProxyStyle *style);
 
     QString currentLanguageFile() const;
     QString currentLanguage() const;
@@ -98,12 +103,15 @@ public:
 
     NetworkManager* networkManager();
     RestoreManager* restoreManager();
+    SessionManager* sessionManager();
     DownloadManager* downloadManager();
     UserAgentManager* userAgentManager();
     SearchEnginesManager* searchEnginesManager();
     HTML5PermissionsManager* html5PermissionsManager();
     DesktopNotificationsFactory* desktopNotifications();
     QWebEngineProfile* webProfile() const;
+
+    QByteArray saveState() const;
 
     static MainApplication* instance();
 
@@ -119,17 +127,17 @@ public slots:
 
 signals:
     void settingsReloaded();
+    void activeWindowChanged(BrowserWindow* window);
 
 private slots:
     void postLaunch();
 
-    void saveSession();
     void saveSettings();
 
     void messageReceived(const QString &message);
     void windowDestroyed(QObject* window);
     void onFocusChanged();
-    void checkDefaultWebBrowser();
+    void runDeferredPostLaunchActions();
 
     void downloadRequested(QWebEngineDownloadItem *download);
 
@@ -144,9 +152,11 @@ private:
     void loadTheme(const QString &name);
 
     void translateApp();
-    void backupSavedSessions();
 
     void setUserStyleSheet(const QString &filePath);
+
+    void checkDefaultWebBrowser();
+    void checkOptimizeDatabase();
 
     bool m_isPrivate;
     bool m_isPortable;
@@ -164,6 +174,7 @@ private:
 
     NetworkManager* m_networkManager;
     RestoreManager* m_restoreManager;
+    SessionManager* m_sessionManager;
     DownloadManager* m_downloadManager;
     UserAgentManager* m_userAgentManager;
     SearchEnginesManager* m_searchEnginesManager;
@@ -172,6 +183,7 @@ private:
     QWebEngineProfile* m_webProfile;
 
     AutoSaver* m_autoSaver;
+    ProxyStyle *m_proxyStyle = nullptr;
 
     QList<BrowserWindow*> m_windows;
     QPointer<BrowserWindow> m_lastActiveWindow;
@@ -179,6 +191,9 @@ private:
     QList<PostLaunchAction> m_postLaunchActions;
 
     QString m_languageFile;
+
+    void createJumpList();
+    void initPulseSupport();
 
 #if defined(Q_OS_WIN) && !defined(Q_OS_OS2)
 public:
@@ -188,7 +203,7 @@ private:
     RegisterQAppAssociation* m_registerQAppAssociation;
 #endif
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 public:
     bool event(QEvent* e);
 #endif

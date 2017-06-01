@@ -1,6 +1,6 @@
 /* ============================================================
-* QupZilla - WebKit based browser
-* Copyright (C) 2014-2016 David Rosca <nowrep@gmail.com>
+* QupZilla - Qt web browser
+* Copyright (C) 2014-2017 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@
 #include "qzsettings.h"
 #include "pluginproxy.h"
 #include "webinspector.h"
+#include "sessionmanager.h"
 
 #include <QApplication>
 #include <QMetaObject>
@@ -41,7 +42,7 @@
 #include <QMenuBar>
 #include <QDesktopServices>
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 extern void qt_mac_set_dock_menu(QMenu* menu);
 #endif
 
@@ -81,6 +82,7 @@ void MainMenu::initSuperMenu(QMenu* superMenu) const
     superMenu->addAction(m_actions[QSL("File/OpenFile")]);
     superMenu->addSeparator();
     superMenu->addAction(m_actions[QSL("File/SendLink")]);
+    superMenu->addAction(m_actions[QSL("File/Print")]);
     superMenu->addSeparator();
     superMenu->addAction(m_actions[QSL("Edit/SelectAll")]);
     superMenu->addAction(m_actions[QSL("Edit/Find")]);
@@ -162,6 +164,13 @@ void MainMenu::openFile()
 void MainMenu::closeWindow()
 {
     callSlot("closeWindow");
+}
+
+void MainMenu::savePageAs()
+{
+    if (m_window) {
+        QMetaObject::invokeMethod(m_window->weView(), "savePageAs");
+    }
 }
 
 void MainMenu::sendLink()
@@ -354,7 +363,7 @@ void MainMenu::restoreClosedTab()
 
 void MainMenu::aboutToShowFileMenu()
 {
-#ifndef Q_OS_MAC
+#ifndef Q_OS_MACOS
     m_actions[QSL("File/CloseWindow")]->setEnabled(mApp->windowCount() > 1);
 #endif
 }
@@ -521,6 +530,23 @@ void MainMenu::init()
     ADD_ACTION("File/OpenFile", m_menuFile, QIcon::fromTheme(QSL("document-open")), tr("Open &File..."), SLOT(openFile()), "Ctrl+O");
     ADD_ACTION("File/CloseWindow", m_menuFile, QIcon::fromTheme(QSL("window-close")), tr("Close Window"), SLOT(closeWindow()), "Ctrl+Shift+W");
     m_menuFile->addSeparator();
+
+    if (!mApp->isPrivate()) {
+        action = new QAction(tr("New Session..."), this);
+        connect(action, SIGNAL(triggered()), mApp->sessionManager(), SLOT(newSession()));
+        m_actions[QSL("File/NewSession")] = action;
+        m_menuFile->addAction(action);
+        action = new QAction(tr("Save Session..."), this);
+        connect(action, SIGNAL(triggered()), mApp->sessionManager(), SLOT(saveSession()));
+        m_actions[QSL("File/SaveSession")] = action;
+        m_menuFile->addAction(action);
+        QMenu* sessionsSubmenu = new QMenu(tr("Sessions"));
+        connect(sessionsSubmenu, SIGNAL(aboutToShow()), mApp->sessionManager(), SLOT(aboutToShowSessionsMenu()));
+        m_menuFile->addMenu(sessionsSubmenu);
+        m_menuFile->addSeparator();
+    }
+
+    ADD_ACTION("File/SavePageAs", m_menuFile, QIcon::fromTheme(QSL("document-save")), tr("&Save Page As..."), SLOT(savePageAs()), "Ctrl+S");
     ADD_ACTION("File/SendLink", m_menuFile, QIcon::fromTheme(QSL("mail-message-new")), tr("Send Link..."), SLOT(sendLink()), "");
     ADD_ACTION("File/Print", m_menuFile, QIcon::fromTheme(QSL("document-print")), tr("&Print..."), SLOT(printPage()), "Ctrl+P");
     m_menuFile->addSeparator();
@@ -599,8 +625,8 @@ void MainMenu::init()
     // Help menu
     m_menuHelp = new QMenu(tr("&Help"));
 
-#ifndef Q_OS_MAC
-    ADD_ACTION("Help/AboutQt", m_menuHelp, QIcon(QSL(":/icons/menu/qt.png")), tr("About &Qt"), SLOT(aboutQt()), "");
+#ifndef Q_OS_MACOS
+    ADD_ACTION("Help/AboutQt", m_menuHelp, QIcon(), tr("About &Qt"), SLOT(aboutQt()), "");
     m_menuHelp->addAction(m_actions[QSL("Standard/About")]);
     m_menuHelp->addSeparator();
 #endif
@@ -625,7 +651,7 @@ void MainMenu::init()
     connect(action, SIGNAL(triggered()), this, SLOT(restoreClosedTab()));
     m_actions[QSL("Other/RestoreClosedTab")] = action;
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     m_actions[QSL("View/FullScreen")]->setShortcut(QKeySequence(QSL("Ctrl+Meta+F")));
 
     // Add standard actions to File Menu (as it won't be ever cleared) and Mac menubar should move them to "Application" menu
@@ -643,9 +669,9 @@ void MainMenu::init()
     qt_mac_set_dock_menu(dockMenu);
 #endif
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MAC)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     m_menuEdit->addAction(m_actions[QSL("Standard/Preferences")]);
-#elif !defined(Q_OS_MAC)
+#elif !defined(Q_OS_MACOS)
     m_menuTools->addAction(m_actions[QSL("Standard/Preferences")]);
 #endif
 

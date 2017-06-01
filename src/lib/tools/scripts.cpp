@@ -1,6 +1,6 @@
 /* ============================================================
 * QupZilla - WebKit based browser
-* Copyright (C) 2015-2016 David Rosca <nowrep@gmail.com>
+* Copyright (C) 2015-2017 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -45,25 +45,32 @@ QString Scripts::setupWebChannel()
                            "    return;"
                            "}"
                            ""
-                           "new QWebChannel(qt.webChannelTransport, function(channel) {"
-                           "    registerExternal(channel.objects.qz_object);"
-                           "});"
+                           "function registerWebChannel() {"
+                           "    try {"
+                           "        new QWebChannel(qt.webChannelTransport, function(channel) {"
+                           "            registerExternal(channel.objects.qz_object);"
+                           "        });"
+                           "    } catch (e) {"
+                           "        setTimeout(registerWebChannel, 100);"
+                           "    }"
+                           "}"
+                           "registerWebChannel();"
                            ""
                            "})()");
 
-    return source.arg(QzTools::readAllFileContents(QSL(":/html/qwebchannel.js")));
+    return source.arg(QzTools::readAllFileContents(QSL(":/qtwebchannel/qwebchannel.js")));
 }
 
 QString Scripts::setupFormObserver()
 {
     QString source = QL1S("(function() {"
                           "function findUsername(inputs) {"
-                          "    for (var i = 0; i < inputs.length; ++i)"
-                          "        if (inputs[i].type == 'text' && inputs[i].value.length && inputs[i].name.indexOf('user') != -1)"
-                          "            return inputs[i].value;"
-                          "    for (var i = 0; i < inputs.length; ++i)"
-                          "        if (inputs[i].type == 'text' && inputs[i].value.length && inputs[i].name.indexOf('name') != -1)"
-                          "            return inputs[i].value;"
+                          "    var usernameNames = ['user', 'name', 'login'];"
+                          "    for (var i = 0; i < usernameNames.length; ++i) {"
+                          "        for (var j = 0; j < inputs.length; ++j)"
+                          "            if (inputs[j].type == 'text' && inputs[j].value.length && inputs[j].name.indexOf(usernameNames[i]) != -1)"
+                          "                return inputs[j].value;"
+                          "    }"
                           "    for (var i = 0; i < inputs.length; ++i)"
                           "        if (inputs[i].type == 'text' && inputs[i].value.length)"
                           "            return inputs[i].value;"
@@ -100,16 +107,18 @@ QString Scripts::setupFormObserver()
                           "    }, true);"
                           "}"
                           ""
+                          "if (!document.documentElement) return;"
+                          ""
                           "for (var i = 0; i < document.forms.length; ++i)"
                           "    registerForm(document.forms[i]);"
                           ""
                           "var observer = new MutationObserver(function(mutations) {"
                           "    for (var i = 0; i < mutations.length; ++i)"
                           "        for (var j = 0; j < mutations[i].addedNodes.length; ++j)"
-                          "            if (mutations[i].addedNodes[j].tagName == 'form')"
+                          "            if (mutations[i].addedNodes[j].tagName == 'FORM')"
                           "                registerForm(mutations[i].addedNodes[j]);"
                           "});"
-                          "observer.observe(document.documentElement, { childList: true });"
+                          "observer.observe(document.documentElement, { childList: true, subtree: true });"
                           ""
                           "})()");
 
@@ -119,10 +128,12 @@ QString Scripts::setupFormObserver()
 QString Scripts::setCss(const QString &css)
 {
     QString source = QL1S("(function() {"
+                          "var head = document.getElementsByTagName('head')[0];"
+                          "if (!head) return;"
                           "var css = document.createElement('style');"
                           "css.setAttribute('type', 'text/css');"
                           "css.appendChild(document.createTextNode('%1'));"
-                          "document.getElementsByTagName('head')[0].appendChild(css);"
+                          "head.appendChild(css);"
                           "})()");
 
     QString style = css;
@@ -250,7 +261,7 @@ QString Scripts::getAllMetaAttributes()
     return source;
 }
 
-QString Scripts::getFormData(const QPoint &pos)
+QString Scripts::getFormData(const QPointF &pos)
 {
     QString source = QL1S("(function() {"
                           "var e = document.elementFromPoint(%1, %2);"

@@ -1,4 +1,4 @@
-QT += webenginecore webenginewidgets webchannel network widgets sql quickwidgets
+QT += webenginecore webenginewidgets webchannel network widgets sql quickwidgets printsupport
 
 TARGET = QupZilla
 TEMPLATE = lib
@@ -42,11 +42,9 @@ DEPENDPATH += $$INCLUDEPATH \
               data \
 
 SOURCES += \
-    3rdparty/ecwin7.cpp \
     3rdparty/fancytabwidget.cpp \
     3rdparty/lineedit.cpp \
     3rdparty/processinfo.cpp \
-    3rdparty/qtwin.cpp \
     3rdparty/squeezelabelv1.cpp \
     3rdparty/squeezelabelv2.cpp \
     3rdparty/stylehelper.cpp \
@@ -168,6 +166,7 @@ SOURCES += \
     preferences/useragentdialog.cpp \
     session/recoveryjsobject.cpp \
     session/restoremanager.cpp \
+    session/sessionmanager.cpp \
     sidebar/bookmarkssidebar.cpp \
     sidebar/historysidebar.cpp \
     sidebar/sidebar.cpp \
@@ -208,7 +207,6 @@ SOURCES += \
     tools/toolbutton.cpp \
     tools/treewidget.cpp \
     tools/widget.cpp \
-    webengine/iconloader.cpp \
     webengine/javascript/autofilljsobject.cpp \
     webengine/javascript/externaljsobject.cpp \
     webengine/loadrequest.cpp \
@@ -216,17 +214,17 @@ SOURCES += \
     webengine/webinspector.cpp \
     webengine/webpage.cpp \
     webengine/webview.cpp \
+    webengine/webscrollbar.cpp \
+    webengine/webscrollbarmanager.cpp \
     webtab/searchtoolbar.cpp \
     webtab/tabbedwebview.cpp \
     webtab/webtab.cpp \
+    tools/wheelhelper.cpp \
 
 HEADERS  += \
-    3rdparty/ecwin7.h \
     3rdparty/fancytabwidget.h \
     3rdparty/lineedit.h \
-    3rdparty/msvc2008.h \
     3rdparty/processinfo.h \
-    3rdparty/qtwin.h \
     3rdparty/squeezelabelv1.h \
     3rdparty/squeezelabelv2.h \
     3rdparty/stylehelper.h \
@@ -350,6 +348,7 @@ HEADERS  += \
     preferences/useragentdialog.h \
     session/recoveryjsobject.h \
     session/restoremanager.h \
+    session/sessionmanager.h \
     sidebar/bookmarkssidebar.h \
     sidebar/historysidebar.h \
     sidebar/sidebar.h \
@@ -391,7 +390,6 @@ HEADERS  += \
     tools/toolbutton.h \
     tools/treewidget.h \
     tools/widget.h \
-    webengine/iconloader.h \
     webengine/javascript/autofilljsobject.h \
     webengine/javascript/externaljsobject.h \
     webengine/loadrequest.h \
@@ -399,9 +397,12 @@ HEADERS  += \
     webengine/webinspector.h \
     webengine/webpage.h \
     webengine/webview.h \
+    webengine/webscrollbar.h \
+    webengine/webscrollbarmanager.h \
     webtab/searchtoolbar.h \
     webtab/tabbedwebview.h \
     webtab/webtab.h \
+    tools/wheelhelper.h \
 
 FORMS    += \
     adblock/adblockaddsubscriptiondialog.ui \
@@ -425,7 +426,6 @@ FORMS    += \
     other/aboutdialog.ui \
     other/browsinglibrary.ui \
     other/clearprivatedata.ui \
-    other/checkboxdialog.ui \
     other/iconchooser.ui \
     other/siteinfo.ui \
     other/siteinfowidget.ui \
@@ -452,7 +452,7 @@ RESOURCES += \
     data/data.qrc \
     data/html.qrc \
     data/icons.qrc \
-    data/oxygen-fallback.qrc
+    data/breeze-fallback.qrc
 
 !mac:unix {
     target.path = $$library_folder
@@ -468,6 +468,7 @@ RESOURCES += \
 }
 
 win32 {
+    QT *= winextras
     HEADERS += other/registerqappassociation.h
     SOURCES += other/registerqappassociation.cpp
 
@@ -485,6 +486,9 @@ mac {
     LIBS += -L$$BREW_OPENSSL/lib
 
     LIBS += -lcrypto -framework CoreServices
+
+    OBJECTIVE_SOURCES += tools/disablewindowtabbbing.mm
+    LIBS += -framework AppKit
 }
 
 message(===========================================)

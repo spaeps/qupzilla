@@ -1,6 +1,6 @@
 /* ============================================================
-* QupZilla - WebKit based browser
-* Copyright (C) 2010-2015  David Rosca <nowrep@gmail.com>
+* QupZilla - Qt web browser
+* Copyright (C) 2010-2017 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -119,18 +119,17 @@ void StatusBarMessage::showMessage(const QString &message)
         const static QChar LRE(0x202a);
         m_window->statusBar()->showMessage(message.isRightToLeft() ? message : (LRE + message));
     }
-#ifdef Q_OS_WIN
     else if (mApp->activeWindow() == m_window) {
-#else
-    else {
-#endif
         WebView* view = m_window->weView();
 
+        const int verticalScrollSize = view->scrollBarGeometry(Qt::Vertical).width();;
+        const int horizontalScrollSize = view->scrollBarGeometry(Qt::Horizontal).height();
+
         m_statusBarText->setText(message);
-        m_statusBarText->setMaximumWidth(view->width() - 20);
+        m_statusBarText->setMaximumWidth(view->width() - verticalScrollSize);
         m_statusBarText->resize(m_statusBarText->sizeHint());
 
-        QPoint position(0, view->height() - m_statusBarText->height());
+        QPoint position(0, view->height() - horizontalScrollSize - m_statusBarText->height());
         const QRect statusRect = QRect(view->mapToGlobal(QPoint(0, position.y())), m_statusBarText->size());
 
         if (statusRect.contains(QCursor::pos())) {

@@ -34,7 +34,7 @@ public:
         QVector<WebTab::SavedTab> tabsState;
     };
 
-    explicit RestoreManager();
+    explicit RestoreManager(const QString &file);
     virtual ~RestoreManager();
 
     bool isValid() const;
@@ -42,6 +42,7 @@ public:
 
     QObject *recoveryObject(WebPage *page);
 
+    static void createFromFile(const QString &file, QVector<RestoreManager::WindowData> &data);
 private:
     void createFromFile(const QString &file);
 

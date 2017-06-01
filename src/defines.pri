@@ -8,7 +8,7 @@ UI_DIR = $$PWD/../build
 # workaround for #849: see https://bugreports.qt-project.org/browse/QTBUG-23196
 mocinclude.CONFIG *= fix_target
 
-QZ_VERSION = 2.0.99
+QZ_VERSION = 2.1.99
 unix: VERSION = $$QZ_VERSION
 DEFINES *= QUPZILLA_VERSION=\\\"""$$QZ_VERSION"\\\""
 
@@ -83,12 +83,14 @@ haiku-* {
     DEFINES *= USE_LIBPATH=\\\"""$$library_folder"\\\""
     DEFINES *= USE_DATADIR=\\\"""$$data_folder"\\\""
 
+    # Define QZ_WS_X11 even with Qt5 (but only when building for X11)
+    !contains(DEFINES, NO_X11) DEFINES *= QZ_WS_X11
+}
+
+unix: {
     # Git revision
     rev = $$system(cd ../ && sh $$PWD/../scripts/getrevision.sh)
     !equals(rev, ""): DEFINES *= GIT_REVISION=\\\"""$$rev"\\\""
-
-    # Define QZ_WS_X11 even with Qt5 (but only when building for X11)
-    !contains(DEFINES, NO_X11) DEFINES *= QZ_WS_X11
 }
 
 isEmpty(QMAKE_LRELEASE) {

@@ -75,9 +75,6 @@ public:
     bool restoreState(const QVector<WebTab::SavedTab> &tabs, int currentTab);
     void closeRecoveryTab();
 
-    void savePinnedTabs();
-    void restorePinnedTabs();
-
     void setCurrentIndex(int index);
 
     void nextTab();
@@ -93,6 +90,8 @@ public:
     ClosedTabsManager* closedTabsManager() const;
     QList<WebTab*> allTabs(bool withPinned = true);
     bool canRestoreTab() const;
+    bool isCurrentTabFresh() const;
+    void setCurrentTabFresh(bool currentTabFresh);
 
     QStackedWidget* locationBars() const;
     ToolButton* buttonClosedTabs() const;
@@ -115,6 +114,8 @@ public slots:
     void reloadAllTabs();
     void stopTab(int index);
     void closeAllButCurrent(int index);
+    void closeToRight(int index);
+    void closeToLeft(int index);
     void detachTab(int index);
     void restoreClosedTab(QObject* obj = 0);
     void restoreAllClosedTabs();
@@ -164,6 +165,8 @@ private:
     bool m_newTabAfterActive;
     bool m_newEmptyTabAfterActive;
     QUrl m_urlOnNewTab;
+
+    bool m_currentTabFresh;
 };
 
 #endif // TABWIDGET_H

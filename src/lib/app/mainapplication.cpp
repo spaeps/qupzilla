@@ -1,6 +1,6 @@
 /* ============================================================
-* QupZilla - WebKit based browser
-* Copyright (C) 2010-2016  David Rosca <nowrep@gmail.com>
+* QupZilla - Qt web browser
+* Copyright (C) 2010-2017 David Rosca <nowrep@gmail.com>
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 * ============================================================ */
 #include "mainapplication.h"
-#include "qtwin.h"
 #include "history.h"
 #include "qztools.h"
 #include "updater.h"
@@ -47,6 +46,7 @@
 #include "desktopnotificationsfactory.h"
 #include "html5permissions/html5permissionsmanager.h"
 #include "scripts.h"
+#include "sessionmanager.h"
 
 #include <QWebEngineSettings>
 #include <QDesktopServices>
@@ -64,6 +64,12 @@
 #include <QWebEngineProfile>
 #include <QWebEngineDownloadItem>
 #include <QWebEngineScriptCollection>
+
+#ifdef Q_OS_WIN
+#include <QtWin>
+#include <QWinJumpList>
+#include <QWinJumpListCategory>
+#endif
 
 #include <iostream>
 
@@ -86,6 +92,7 @@ MainApplication::MainApplication(int &argc, char** argv)
     , m_browsingLibrary(0)
     , m_networkManager(0)
     , m_restoreManager(0)
+    , m_sessionManager(0)
     , m_downloadManager(0)
     , m_userAgentManager(0)
     , m_searchEnginesManager(0)
@@ -97,6 +104,7 @@ MainApplication::MainApplication(int &argc, char** argv)
     , m_registerQAppAssociation(0)
 #endif
 {
+    setAttribute(Qt::AA_UseHighDpiPixmaps);
     setAttribute(Qt::AA_DontCreateNativeWidgetSiblings);
 
     setApplicationName(QLatin1String("QupZilla"));
@@ -111,8 +119,8 @@ MainApplication::MainApplication(int &argc, char** argv)
 
     // Set fallback icon theme (eg. on Windows/Mac)
     if (QIcon::fromTheme(QSL("view-refresh")).isNull()) {
-        QIcon::setThemeSearchPaths(QStringList() << QL1S(":/oxygen-fallback"));
-        QIcon::setThemeName(QSL("oxygen-fallback"));
+        QIcon::setThemeSearchPaths(QStringList() << QL1S(":/breeze-fallback"));
+        QIcon::setThemeName(QSL("breeze-fallback"));
     }
 
     // QSQLITE database plugin is required
@@ -235,15 +243,19 @@ MainApplication::MainApplication(int &argc, char** argv)
         return;
     }
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     setQuitOnLastWindowClosed(false);
+    // disable tabbing issue#2261
+    extern void disableWindowTabbing();
+    disableWindowTabbing();
 #else
     setQuitOnLastWindowClosed(true);
 #endif
 
     QSettings::setDefaultFormat(QSettings::IniFormat);
-    QDesktopServices::setUrlHandler("http", this, "addNewTab");
-    QDesktopServices::setUrlHandler("ftp", this, "addNewTab");
+    QDesktopServices::setUrlHandler(QSL("http"), this, "addNewTab");
+    QDesktopServices::setUrlHandler(QSL("https"), this, "addNewTab");
+    QDesktopServices::setUrlHandler(QSL("ftp"), this, "addNewTab");
 
     ProfileManager profileManager;
     profileManager.initConfigDir();
@@ -260,13 +272,24 @@ MainApplication::MainApplication(int &argc, char** argv)
     QWebEngineScript script;
     script.setName(QSL("_qupzilla_webchannel"));
     script.setInjectionPoint(QWebEngineScript::DocumentCreation);
-    script.setWorldId(WebPage::SafeJsWorld);
+    script.setWorldId(QWebEngineScript::MainWorld);
     script.setRunsOnSubFrames(true);
     script.setSourceCode(Scripts::setupWebChannel());
     m_webProfile->scripts()->insert(script);
 
-    m_autoSaver = new AutoSaver(this);
-    connect(m_autoSaver, SIGNAL(save()), this, SLOT(saveSession()));
+    if (!isPrivate()) {
+        m_sessionManager = new SessionManager(this);
+        m_autoSaver = new AutoSaver(this);
+        connect(m_autoSaver, SIGNAL(save()), m_sessionManager, SLOT(autoSaveLastSession()));
+
+        Settings settings;
+        m_isStartingAfterCrash = settings.value("SessionRestore/isRunning", false).toBool();
+        settings.setValue("SessionRestore/isRunning", true);
+
+        // we have to ask about startup session before creating main window
+        if (!m_isStartingAfterCrash && afterLaunch() == SelectSession)
+            m_restoreManager = new RestoreManager(sessionManager()->askSessionFromUser());
+    }
 
     translateApp();
     loadSettings();
@@ -284,11 +307,8 @@ MainApplication::MainApplication(int &argc, char** argv)
 
 
     if (!isPrivate()) {
-        Settings settings;
-        m_isStartingAfterCrash = settings.value("SessionRestore/isRunning", false).toBool();
-        settings.setValue("SessionRestore/isRunning", true);
-
 #ifndef DISABLE_CHECK_UPDATES
+        Settings settings;
         bool checkUpdates = settings.value("Web-Browser-Settings/CheckUpdates", true).toBool();
 
         if (checkUpdates) {
@@ -296,10 +316,10 @@ MainApplication::MainApplication(int &argc, char** argv)
         }
 #endif
 
-        backupSavedSessions();
+        sessionManager()->backupSavedSessions();
 
         if (m_isStartingAfterCrash || afterLaunch() == RestoreSession) {
-            m_restoreManager = new RestoreManager();
+            m_restoreManager = new RestoreManager(sessionManager()->lastActiveSessionPath());
             if (!m_restoreManager->isValid()) {
                 destroyRestoreManager();
             } else {
@@ -393,17 +413,17 @@ MainApplication::AfterLaunch MainApplication::afterLaunch() const
     return static_cast<AfterLaunch>(Settings().value(QSL("Web-URL-Settings/afterLaunch"), RestoreSession).toInt());
 }
 
-bool MainApplication::restoreSession(BrowserWindow* window, RestoreData restoreData)
+void MainApplication::openSession(BrowserWindow* window, RestoreData &restoreData)
 {
-    if (m_isPrivate || restoreData.isEmpty()) {
-        return false;
-    }
-
-    m_isRestoring = true;
     setOverrideCursor(Qt::BusyCursor);
 
+    if (!window)
+        window = createWindow(Qz::BW_OtherRestoredWindow);
+
     window->setUpdatesEnabled(false);
-    window->tabWidget()->closeRecoveryTab();
+
+    if (m_isRestoring)
+        window->tabWidget()->closeRecoveryTab();
 
     if (window->tabWidget()->normalTabsCount() > 1) {
         // This can only happen when recovering crashed session!
@@ -442,8 +462,20 @@ bool MainApplication::restoreSession(BrowserWindow* window, RestoreData restoreD
         processEvents();
     }
 
-    destroyRestoreManager();
     restoreOverrideCursor();
+}
+
+bool MainApplication::restoreSession(BrowserWindow* window, RestoreData restoreData)
+{
+    if (m_isPrivate || restoreData.isEmpty()) {
+        return false;
+    }
+
+    m_isRestoring = true;
+
+    openSession(window, restoreData);
+
+    destroyRestoreManager();
     m_isRestoring = false;
 
     return true;
@@ -463,8 +495,13 @@ void MainApplication::reloadSettings()
 
 QString MainApplication::styleName() const
 {
-    QProxyStyle *proxyStyle = qobject_cast<QProxyStyle*>(style());
-    return proxyStyle ? proxyStyle->baseStyle()->objectName() : style()->objectName();
+    return m_proxyStyle ? m_proxyStyle->name() : QString();
+}
+
+void MainApplication::setProxyStyle(ProxyStyle *style)
+{
+    m_proxyStyle = style;
+    setStyle(style);
 }
 
 QString MainApplication::currentLanguageFile() const
@@ -533,6 +570,11 @@ NetworkManager *MainApplication::networkManager()
 RestoreManager* MainApplication::restoreManager()
 {
     return m_restoreManager;
+}
+
+SessionManager* MainApplication::sessionManager()
+{
+    return m_sessionManager;
 }
 
 DownloadManager* MainApplication::downloadManager()
@@ -628,7 +670,8 @@ void MainApplication::restoreOverrideCursor()
 
 void MainApplication::changeOccurred()
 {
-    m_autoSaver->changeOccurred();
+    if (m_autoSaver)
+        m_autoSaver->changeOccurred();
 }
 
 void MainApplication::quitApplication()
@@ -638,8 +681,8 @@ void MainApplication::quitApplication()
         return;
     }
 
-    if (m_windows.count() > 0) {
-        m_autoSaver->saveIfNecessary();
+    if (m_sessionManager && m_windows.count() > 0) {
+        m_sessionManager->autoSaveLastSession();
     }
 
     m_isClosing = true;
@@ -675,17 +718,14 @@ void MainApplication::postLaunch()
     connect(this, SIGNAL(messageReceived(QString)), this, SLOT(messageReceived(QString)));
     connect(this, SIGNAL(aboutToQuit()), this, SLOT(saveSettings()));
 
-    QtWin::createJumpList();
+    createJumpList();
+    initPulseSupport();
 
-    QTimer::singleShot(1000, this, SLOT(checkDefaultWebBrowser()));
+    QTimer::singleShot(5000, this, &MainApplication::runDeferredPostLaunchActions);
 }
 
-void MainApplication::saveSession()
+QByteArray MainApplication::saveState() const
 {
-    if (m_isPrivate || m_isRestoring || m_windows.count() == 0 || m_restoreManager) {
-        return;
-    }
-
     QByteArray data;
     QDataStream stream(&data, QIODevice::WriteOnly);
 
@@ -702,18 +742,7 @@ void MainApplication::saveSession()
         }
     }
 
-    if (afterLaunch() != RestoreSession) {
-        // Pinned tabs are saved only for last window into pinnedtabs.dat
-        BrowserWindow* qupzilla_ = getWindow();
-        if (qupzilla_ && m_windows.count() == 1) {
-            qupzilla_->tabWidget()->savePinnedTabs();
-        }
-    }
-
-    QFile file(DataPaths::currentProfilePath() + QLatin1String("/session.dat"));
-    file.open(QIODevice::WriteOnly);
-    file.write(data);
-    file.close();
+    return data;
 }
 
 void MainApplication::saveSettings()
@@ -730,8 +759,13 @@ void MainApplication::saveSettings()
     settings.endGroup();
 
     settings.beginGroup("Web-Browser-Settings");
+    bool deleteCache = settings.value("deleteCacheOnClose", false).toBool();
     bool deleteHistory = settings.value("deleteHistoryOnClose", false).toBool();
     bool deleteHtml5Storage = settings.value("deleteHTML5StorageOnClose", false).toBool();
+    settings.endGroup();
+
+    settings.beginGroup("Cookie-Settings");
+    bool deleteCookies = settings.value("deleteCookiesOnClose", false).toBool();
     settings.endGroup();
 
     if (deleteHistory) {
@@ -740,15 +774,24 @@ void MainApplication::saveSettings()
     if (deleteHtml5Storage) {
         ClearPrivateData::clearLocalStorage();
     }
+    if (deleteCookies) {
+        m_cookieJar->deleteAllCookies();
+    }
+    if (deleteCache) {
+        QzTools::removeDir(mApp->webProfile()->cachePath());
+    }
 
     m_searchEnginesManager->saveSettings();
     m_plugins->shutdown();
+    m_networkManager->shutdown();
 
     DataPaths::clearTempData();
 
     qzSettings->saveSettings();
     AdBlockManager::instance()->save();
     QFile::remove(DataPaths::currentProfilePath() + QLatin1String("/WebpageIcons.db"));
+
+    sessionManager()->saveSettings();
 }
 
 void MainApplication::messageReceived(const QString &message)
@@ -825,7 +868,15 @@ void MainApplication::onFocusChanged()
 
     if (activeBrowserWindow) {
         m_lastActiveWindow = activeBrowserWindow;
+
+        emit activeWindowChanged(m_lastActiveWindow);
     }
+}
+
+void MainApplication::runDeferredPostLaunchActions()
+{
+    checkDefaultWebBrowser();
+    checkOptimizeDatabase();
 }
 
 void MainApplication::downloadRequested(QWebEngineDownloadItem *download)
@@ -854,10 +905,12 @@ void MainApplication::loadSettings()
     webSettings->setAttribute(QWebEngineSettings::JavascriptCanAccessClipboard, settings.value("allowJavaScriptAccessClipboard", true).toBool());
     webSettings->setAttribute(QWebEngineSettings::LinksIncludedInFocusChain, settings.value("IncludeLinkInFocusChain", false).toBool());
     webSettings->setAttribute(QWebEngineSettings::XSSAuditingEnabled, settings.value("XSSAuditing", false).toBool());
+    webSettings->setAttribute(QWebEngineSettings::PrintElementBackgrounds, settings.value("PrintElementBackground", true).toBool());
     webSettings->setAttribute(QWebEngineSettings::SpatialNavigationEnabled, settings.value("SpatialNavigation", false).toBool());
     webSettings->setAttribute(QWebEngineSettings::ScrollAnimatorEnabled, settings.value("AnimateScrolling", true).toBool());
     webSettings->setAttribute(QWebEngineSettings::HyperlinkAuditingEnabled, false);
     webSettings->setAttribute(QWebEngineSettings::FullScreenSupportEnabled, true);
+    webSettings->setAttribute(QWebEngineSettings::LocalContentCanAccessRemoteUrls, true);
 
     webSettings->setDefaultTextEncoding(settings.value("DefaultEncoding", webSettings->defaultTextEncoding()).toString());
 
@@ -894,6 +947,14 @@ void MainApplication::loadSettings()
     const bool allowCache = settings.value(QSL("Web-Browser-Settings/AllowLocalCache"), true).toBool();
     profile->setHttpCacheType(allowCache ? QWebEngineProfile::DiskHttpCache : QWebEngineProfile::MemoryHttpCache);
 
+    const int cacheSize = settings.value(QSL("Web-Browser-Settings/LocalCacheSize"), 50).toInt() * 1000 * 1000;
+    profile->setHttpCacheMaximumSize(cacheSize);
+
+    settings.beginGroup(QSL("SpellCheck"));
+    profile->setSpellCheckEnabled(settings.value(QSL("Enabled"), false).toBool());
+    profile->setSpellCheckLanguages(settings.value(QSL("Languages")).toStringList());
+    settings.endGroup();
+
     if (isPrivate()) {
         webSettings->setAttribute(QWebEngineSettings::LocalStorageEnabled, false);
         history()->setSaving(false);
@@ -928,7 +989,7 @@ void MainApplication::loadTheme(const QString &name)
 
     QString qss = QzTools::readAllFileContents(activeThemePath + QLatin1String("/main.css"));
 
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
     qss.append(QzTools::readAllFileContents(activeThemePath + QLatin1String("/mac.css")));
 #elif defined(Q_OS_UNIX)
     qss.append(QzTools::readAllFileContents(activeThemePath + QLatin1String("/linux.css")));
@@ -1004,27 +1065,6 @@ void MainApplication::translateApp()
     installTranslator(sys);
 }
 
-void MainApplication::backupSavedSessions()
-{
-    // session.dat      - current
-    // session.dat.old  - first backup
-    // session.dat.old1 - second backup
-
-    const QString sessionFile = DataPaths::currentProfilePath() + QLatin1String("/session.dat");
-
-    if (!QFile::exists(sessionFile)) {
-        return;
-    }
-
-    if (QFile::exists(sessionFile + QLatin1String(".old"))) {
-        QFile::remove(sessionFile + QLatin1String(".old1"));
-        QFile::copy(sessionFile + QLatin1String(".old"), sessionFile + QLatin1String(".old1"));
-    }
-
-    QFile::remove(sessionFile + QLatin1String(".old"));
-    QFile::copy(sessionFile, sessionFile + QLatin1String(".old"));
-}
-
 void MainApplication::checkDefaultWebBrowser()
 {
     if (isPortable()) {
@@ -1042,14 +1082,14 @@ void MainApplication::checkDefaultWebBrowser()
     bool checkAgain = true;
 
     if (!associationManager()->isDefaultForAllCapabilities()) {
-        CheckBoxDialog dialog(QDialogButtonBox::Yes | QDialogButtonBox::No, getWindow());
+        CheckBoxDialog dialog(QMessageBox::Yes | QMessageBox::No, getWindow());
         dialog.setText(tr("QupZilla is not currently your default browser. Would you like to make it your default browser?"));
         dialog.setCheckBoxText(tr("Always perform this check when starting QupZilla."));
         dialog.setDefaultCheckState(Qt::Checked);
         dialog.setWindowTitle(tr("Default Browser"));
-        dialog.setIcon(IconProvider::standardIcon(QStyle::SP_MessageBoxWarning));
+        dialog.setIcon(QMessageBox::Warning);
 
-        if (dialog.exec() == QDialog::Accepted) {
+        if (dialog.exec() == QMessageBox::Yes) {
             associationManager()->registerAllAssociation();
         }
 
@@ -1060,15 +1100,31 @@ void MainApplication::checkDefaultWebBrowser()
 #endif
 }
 
+void MainApplication::checkOptimizeDatabase()
+{
+    Settings settings;
+    settings.beginGroup(QSL("Browser"));
+    const int numberOfRuns = settings.value(QSL("RunsWithoutOptimizeDb"), 0).toInt();
+    settings.setValue(QSL("RunsWithoutOptimizeDb"), numberOfRuns + 1);
+
+    if (numberOfRuns > 20) {
+        std::cout << "Optimizing database..." << std::endl;
+        IconProvider::instance()->clearOldIconsInDatabase();
+        settings.setValue(QSL("RunsWithoutOptimizeDb"), 0);
+    }
+
+    settings.endGroup();
+}
+
 void MainApplication::setUserStyleSheet(const QString &filePath)
 {
     QString userCss;
 
-#if !defined(Q_OS_UNIX) && !defined(Q_OS_MAC)
+#if !defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     // Don't grey out selection on losing focus (to prevent graying out found text)
     QString highlightColor;
     QString highlightedTextColor;
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     highlightColor = QLatin1String("#b6d6fc");
     highlightedTextColor = QLatin1String("#000");
 #else
@@ -1100,6 +1156,36 @@ void MainApplication::setUserStyleSheet(const QString &filePath)
     m_webProfile->scripts()->insert(script);
 }
 
+void MainApplication::createJumpList()
+{
+#ifdef Q_OS_WIN
+    QWinJumpList *jumpList = new QWinJumpList(this);
+    jumpList->clear();
+
+    // Frequent
+    QWinJumpListCategory *frequent = jumpList->frequent();
+    frequent->setVisible(true);
+    const QVector<HistoryEntry> mostList = m_history->mostVisited(7);
+    for (const HistoryEntry &entry : mostList) {
+        frequent->addLink(IconProvider::iconForUrl(entry.url), entry.title, applicationFilePath(), QStringList{entry.url.toEncoded()});
+    }
+
+    // Tasks
+    QWinJumpListCategory *tasks = jumpList->tasks();
+    tasks->setVisible(true);
+    tasks->addLink(IconProvider::newTabIcon(), tr("Open new tab"), applicationFilePath(), {QSL("--new-tab")});
+    tasks->addLink(IconProvider::newWindowIcon(), tr("Open new window"), applicationFilePath(), {QSL("--new-window")});
+    tasks->addLink(IconProvider::privateBrowsingIcon(), tr("Open new private window"), applicationFilePath(), {QSL("--private-browsing")});
+#endif
+}
+
+void MainApplication::initPulseSupport()
+{
+    qputenv("PULSE_PROP_OVERRIDE_application.name", "QupZilla");
+    qputenv("PULSE_PROP_OVERRIDE_application.icon_name", "qupzilla");
+    qputenv("PULSE_PROP_OVERRIDE_media.icon_name", "qupzilla");
+}
+
 #if defined(Q_OS_WIN) && !defined(Q_OS_OS2)
 RegisterQAppAssociation* MainApplication::associationManager()
 {
@@ -1118,15 +1204,23 @@ RegisterQAppAssociation* MainApplication::associationManager()
 }
 #endif
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 #include <QFileOpenEvent>
 
 bool MainApplication::event(QEvent* e)
 {
     switch (e->type()) {
-    case QEvent::FileOpen:
-        addNewTab(QUrl::fromLocalFile(static_cast<QFileOpenEvent*>(e)->file()));
+    case QEvent::FileOpen: {
+        QFileOpenEvent *ev = static_cast<QFileOpenEvent*>(e);
+        if (!ev->url().isEmpty()) {
+            addNewTab(ev->url());
+        } else if (!ev->file().isEmpty()) {
+            addNewTab(QUrl::fromLocalFile(ev->file()));
+        } else {
+            return false;
+        }
         return true;
+    }
 
     case QEvent::ApplicationActivate:
         if (!activeWindow() && m_windows.isEmpty())
